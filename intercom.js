@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ozon Intercom (PRO Workflow)
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Ozon Intercom
 // @author       desslow
 // @match        https://*.ozon.ru/orders*
@@ -27,6 +27,7 @@
 
     let isFocusMode = false;
     let isCompactMode = localStorage.getItem('intercom_compact') === 'true';
+    let currentSessionTracker = null;
     let rCtrlPresses = 0;
     let rCtrlTimer = null;
     let isRightCtrlHeld = false;
@@ -78,28 +79,66 @@
         body.intercom-focus-active [class*="_list_mycta_"] {
             display: flex !important;
             flex-wrap: wrap !important;
-            gap: 12px !important;
+            gap: 14px !important;
             align-items: flex-start !important;
+            justify-content: flex-start !important;
         }
         body.intercom-focus-active [class*="_card_"]:not(.intercom-selected) {
             display: none !important;
         }
         body.intercom-focus-active [class*="_card_"].intercom-selected {
-            display: block !important;
+            display: flex !important;
+            flex-direction: column !important;
+            width: 330px !important;
+            max-width: 330px !important;
+            flex: 0 0 330px !important;
             margin: 0 !important;
         }
 
+        body.intercom-compact-active [class*="_list_mycta_"] {
+            display: grid !important;
+            grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)) !important;
+            gap: 10px !important;
+        }
         body.intercom-compact-active [class*="_card_"] {
             padding: 8px 10px !important;
+            box-sizing: border-box !important;
+        }
+        body.intercom-compact-active [class*="_cardInner_"] {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: flex-start !important;
+            gap: 12px !important;
+        }
+        body.intercom-compact-active [class*="_imageWrapper_"] {
+            width: 95px !important;
+            min-width: 95px !important;
+            height: 95px !important;
+            max-height: 95px !important;
+            flex-shrink: 0 !important;
+        }
+        body.intercom-compact-active [class*="_image_"] {
+            object-fit: contain !important;
+            width: 100% !important;
+            height: 100% !important;
+        }
+        body.intercom-compact-active [class*="_content_"] {
+            flex-grow: 1 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            min-height: 95px !important;
         }
         body.intercom-compact-active [class*="_name_"] {
             font-size: 13px !important;
             line-height: 1.25 !important;
             max-height: 34px !important;
             overflow: hidden !important;
+            margin-bottom: 4px !important;
         }
-        body.intercom-compact-active [class*="_imageWrapper_"] {
-            max-height: 120px !important;
+        body.intercom-compact-active [class*="_actions_"] {
+            margin-top: 8px !important;
+            width: 100% !important;
         }
 
         [class*="_addressBadge_"] {
@@ -215,6 +254,7 @@
             gap: 4px;
             box-shadow: 0 8px 24px rgba(0,0,0,0.6);
             z-index: 1000000;
+            min-width: 190px;
         }
         #intercom-more-menu.show { display: flex !important; }
         .intercom-menu-item {
@@ -233,6 +273,11 @@
             white-space: nowrap;
         }
         .intercom-menu-item:hover { background: rgba(255, 255, 255, 0.18); }
+        .intercom-menu-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.12);
+            margin: 2px 0;
+        }
     `;
     document.head.appendChild(style);
 
@@ -264,6 +309,21 @@
         } else if (visibleCards.length > 0) {
             targetedCard = visibleCards[0];
             targetedCard.classList.add('intercom-focus');
+        }
+    }
+
+    function checkSessionReset() {
+        const curSessionId = (window.location.pathname.match(/\/orders\/session(?:-new)?\/(\d+)/) || [])[1];
+        if (curSessionId && curSessionId !== currentSessionTracker) {
+            currentSessionTracker = curSessionId;
+            if (isFocusMode) {
+                isFocusMode = false;
+                document.body.classList.remove('intercom-focus-active');
+                const slot = document.getElementById('intercom-slot-focus');
+                if (slot) slot.classList.remove('active');
+            }
+            selectAllCards(false);
+            targetedCard = null;
         }
     }
 
@@ -329,9 +389,7 @@
 
     function toggleFocusMode() {
         const selected = getSelectedCards();
-        if (!isFocusMode && selected.length === 0) {
-            return;
-        }
+        if (!isFocusMode && selected.length === 0) return;
 
         isFocusMode = !isFocusMode;
         document.body.classList.toggle('intercom-focus-active', isFocusMode);
@@ -346,6 +404,44 @@
         document.body.classList.toggle('intercom-compact-active', isCompactMode);
         const btn = document.getElementById('intercom-menu-compact');
         if (btn) btn.innerHTML = `🗜️ Компактность: <b>${isCompactMode ? 'ВКЛ' : 'ВЫКЛ'}</b>`;
+    }
+
+    function applySorting(type) {
+        const cards = getAllCards();
+        if (cards.length === 0) return;
+
+        const getCardPrice = (c) => {
+            const m = c.textContent.replace(/\s+/g, '').match(/(\d+(?:[.,]\d+)?)\s*₽/);
+            return m ? parseFloat(m[1].replace(',', '.')) : 0;
+        };
+
+        const getCardShelf = (c) => {
+            const b = c.querySelector('[class*="_addressBadge_"]');
+            return b ? b.textContent.trim() : '';
+        };
+
+        const getCardTitle = (c) => {
+            const t = c.querySelector('[data-testid="postingName"], [class*="_name_"]');
+            return t ? t.textContent.trim().toLowerCase() : '';
+        };
+
+        const sorted = [...cards].sort((a, b) => {
+            if (type === 'price') return getCardPrice(b) - getCardPrice(a);
+            if (type === 'shelf') return getCardShelf(a).localeCompare(getCardShelf(b), undefined, { numeric: true });
+            if (type === 'name') return getCardTitle(a).localeCompare(getCardTitle(b));
+            if (type === 'status') {
+                const aReady = a.textContent.includes('К выдаче') ? 1 : 0;
+                const bReady = b.textContent.includes('К выдаче') ? 1 : 0;
+                return bReady - aReady;
+            }
+            return 0;
+        });
+
+        sorted.forEach((card, idx) => {
+            card.style.order = String(idx);
+        });
+
+        maintainFocusVisual();
     }
 
     function isSimilar(s1, s2) {
@@ -539,6 +635,20 @@
                     <button class="intercom-menu-item" id="intercom-menu-none">
                         Снять все <span class="intercom-keycap">RCtrl+7</span>
                     </button>
+                    <div class="intercom-menu-divider"></div>
+                    <button class="intercom-menu-item" id="intercom-sort-shelf">
+                        🔀 По ячейке
+                    </button>
+                    <button class="intercom-menu-item" id="intercom-sort-price">
+                        💰 По цене
+                    </button>
+                    <button class="intercom-menu-item" id="intercom-sort-name">
+                        🔤 По названию
+                    </button>
+                    <button class="intercom-menu-item" id="intercom-sort-status">
+                        📦 По готовности
+                    </button>
+                    <div class="intercom-menu-divider"></div>
                     <button class="intercom-menu-item" id="intercom-menu-compact">
                         🗜️ Компактность: <b>${isCompactMode ? 'ВКЛ' : 'ВЫКЛ'}</b>
                     </button>
@@ -567,6 +677,11 @@
         document.getElementById('intercom-menu-all').onclick = () => { selectAllCards(true); menu.classList.remove('show'); };
         document.getElementById('intercom-menu-none').onclick = () => { selectAllCards(false); menu.classList.remove('show'); };
         document.getElementById('intercom-menu-compact').onclick = () => toggleCompactMode();
+
+        document.getElementById('intercom-sort-shelf').onclick = () => { applySorting('shelf'); menu.classList.remove('show'); };
+        document.getElementById('intercom-sort-price').onclick = () => { applySorting('price'); menu.classList.remove('show'); };
+        document.getElementById('intercom-sort-name').onclick = () => { applySorting('name'); menu.classList.remove('show'); };
+        document.getElementById('intercom-sort-status').onclick = () => { applySorting('status'); menu.classList.remove('show'); };
 
         updateButtonsLabel();
     }
@@ -664,8 +779,12 @@
             return;
         }
 
+        checkSessionReset();
+
         if (isCompactMode) {
             document.body.classList.add('intercom-compact-active');
+        } else {
+            document.body.classList.remove('intercom-compact-active');
         }
 
         injectIntercomBar();
