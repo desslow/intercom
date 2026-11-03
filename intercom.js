@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Ozon Intercom (PRO Workflow)
 // @namespace    http://tampermonkey.net/
-// @version      1.0
-// @description  PRO UI: С.У.К., компактная сетка, умный фокус, амбиент-градиент, массовые операции
+// @version      1.1
+// @description  Ozon Intercom
 // @author       desslow
 // @match        https://*.ozon.ru/orders*
 // @run-at       document-start
@@ -16,7 +16,7 @@
 
     function checkAuth() {
         const loginEl = document.querySelector('[class*="_rightAvatarMenuLogin_"]');
-        if (!loginEl) return null;
+        if (!loginEl) return true;
         const login = loginEl.textContent.trim();
         return ALLOWED_USERS.includes(login);
     }
@@ -26,6 +26,7 @@
     }
 
     let isFocusMode = false;
+    let isCompactMode = localStorage.getItem('intercom_compact') === 'true';
     let rCtrlPresses = 0;
     let rCtrlTimer = null;
     let isRightCtrlHeld = false;
@@ -35,96 +36,87 @@
 
     const style = document.createElement('style');
     style.innerHTML = `
-        body.intercom-locked { display: none !important; }
-
-        [class*="_list_mycta_"] {
-            display: grid !important;
-            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)) !important;
-            gap: 8px !important;
-        }
-
-        [class*="_card_1w2zp_1"], [class*="_card_"]:not([class*="Inner"]) {
-            padding: 8px 10px !important;
-            border-radius: 10px !important;
-            min-height: unset !important;
-            user-select: none !important;
-            transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.2s ease !important;
-        }
-
-        [class*="_imageWrapper_1w2zp_"], [class*="_wrapperOne_p9rab_"] {
-            width: 58px !important;
-            height: 58px !important;
-            min-width: 58px !important;
-        }
-        [class*="_image_p9rab_"] {
-            object-fit: contain !important;
-        }
-
-        [class*="_name_1w2zp_"] {
-            font-size: 13px !important;
-            line-height: 1.25 !important;
-            font-weight: 600 !important;
-            max-height: 34px !important;
-            overflow: hidden !important;
-        }
-
-        [class*="_addressBadge_"] {
-            white-space: nowrap !important;
-            font-size: 11px !important;
-            line-height: 12px !important;
-            letter-spacing: -0.3px !important;
-        }
-
         .intercom-focus {
-            outline: 4px solid #ff9800 !important;
+            outline: 4px solid #00f0ff !important;
             outline-offset: -2px !important;
-            box-shadow: 0 0 14px rgba(255, 152, 0, 0.8) !important;
-            border-radius: 10px !important;
-            z-index: 5 !important;
+            box-shadow: 0 0 16px rgba(0, 240, 255, 0.85) !important;
+            border-radius: 12px !important;
+            z-index: 10 !important;
         }
 
         .intercom-selected {
             outline: 3px solid #ff9800 !important;
             outline-offset: -2px !important;
             background-color: rgba(255, 152, 0, 0.08) !important;
-            position: relative;
+            position: relative !important;
         }
         .intercom-selected::after {
             content: '✓';
             position: absolute;
-            top: 6px;
-            right: 6px;
+            top: 8px;
+            right: 8px;
             background: #ff9800;
             color: #ffffff;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 900;
-            width: 18px;
-            height: 18px;
+            width: 20px;
+            height: 20px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 10;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            z-index: 15;
             pointer-events: none;
         }
 
         .intercom-selected.intercom-focus {
             outline: 4px solid #00f0ff !important;
-            box-shadow: 0 0 18px rgba(0, 240, 255, 0.9) !important;
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.95), 0 0 0 2px #ff9800 !important;
         }
 
+        body.intercom-focus-active [class*="_list_mycta_"] {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            gap: 12px !important;
+            align-items: flex-start !important;
+        }
         body.intercom-focus-active [class*="_card_"]:not(.intercom-selected) {
             display: none !important;
         }
+        body.intercom-focus-active [class*="_card_"].intercom-selected {
+            display: block !important;
+            margin: 0 !important;
+        }
 
-        .intercom-ambient-container {
-            transition: box-shadow 0.6s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        body.intercom-compact-active [class*="_card_"] {
+            padding: 8px 10px !important;
         }
-        .intercom-glow-green {
-            box-shadow: inset 0 0 70px rgba(16, 185, 129, 0.35), inset 0 0 140px rgba(16, 185, 129, 0.15) !important;
+        body.intercom-compact-active [class*="_name_"] {
+            font-size: 13px !important;
+            line-height: 1.25 !important;
+            max-height: 34px !important;
+            overflow: hidden !important;
         }
-        .intercom-glow-red {
-            box-shadow: inset 0 0 70px rgba(239, 68, 68, 0.35), inset 0 0 140px rgba(239, 68, 68, 0.15) !important;
+        body.intercom-compact-active [class*="_imageWrapper_"] {
+            max-height: 120px !important;
+        }
+
+        [class*="_addressBadge_"] {
+            white-space: nowrap !important;
+            max-width: 100% !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+        }
+
+        .intercom-ambient-target {
+            transition: box-shadow 0.5s ease-in-out !important;
+        }
+        .intercom-ambient-green {
+            box-shadow: inset 0 0 80px rgba(16, 185, 129, 0.4), inset 0 0 160px rgba(16, 185, 129, 0.18) !important;
+        }
+        .intercom-ambient-red {
+            box-shadow: inset 0 0 80px rgba(239, 68, 68, 0.4), inset 0 0 160px rgba(239, 68, 68, 0.18) !important;
         }
 
         #intercom-bar {
@@ -143,7 +135,8 @@
             box-shadow: 0 10px 35px rgba(0, 0, 0, 0.65);
             z-index: 999999;
             box-sizing: border-box;
-            animation: slideUpPanel 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            user-select: none;
+            animation: slideUpPanel 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
 
         @keyframes slideUpPanel {
@@ -160,7 +153,6 @@
             font-weight: 600;
             cursor: pointer;
             transition: all 0.15s;
-            user-select: none;
             display: flex;
             align-items: center;
             gap: 5px;
@@ -187,24 +179,22 @@
             pointer-events: none;
         }
 
-        .intercom-slot {
+        .intercom-slot-btn {
             font-size: 12px;
             font-weight: 600;
             padding: 4px 8px;
             border-radius: 6px;
+            cursor: pointer;
             white-space: nowrap;
-            user-select: none;
             display: flex;
             align-items: center;
             gap: 5px;
-        }
-        .slot-focus {
-            cursor: pointer;
+            transition: all 0.2s;
             background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.16);
-            color: #ccc;
+            color: #bbb;
         }
-        .slot-focus.active {
+        .intercom-slot-btn.active {
             background: rgba(0, 240, 255, 0.2) !important;
             border-color: #00f0ff !important;
             color: #00f0ff !important;
@@ -268,14 +258,12 @@
 
     function maintainFocusVisual() {
         document.querySelectorAll('.intercom-focus').forEach(el => el.classList.remove('intercom-focus'));
-        if (targetedCard && document.body.contains(targetedCard)) {
+        const visibleCards = getAllCards().filter(c => c.offsetParent !== null);
+        if (targetedCard && visibleCards.includes(targetedCard)) {
             targetedCard.classList.add('intercom-focus');
-        } else {
-            const first = getAllCards()[0];
-            if (first) {
-                targetedCard = first;
-                first.classList.add('intercom-focus');
-            }
+        } else if (visibleCards.length > 0) {
+            targetedCard = visibleCards[0];
+            targetedCard.classList.add('intercom-focus');
         }
     }
 
@@ -308,16 +296,16 @@
 
             if (direction === 'down' && dy > 20) {
                 valid = true;
-                score = dy + Math.abs(dx) * 1.6;
+                score = dy + Math.abs(dx) * 1.5;
             } else if (direction === 'up' && dy < -20) {
                 valid = true;
-                score = Math.abs(dy) + Math.abs(dx) * 1.6;
+                score = Math.abs(dy) + Math.abs(dx) * 1.5;
             } else if (direction === 'right' && dx > 20) {
                 valid = true;
-                score = dx + Math.abs(dy) * 1.6;
+                score = dx + Math.abs(dy) * 1.5;
             } else if (direction === 'left' && dx < -20) {
                 valid = true;
-                score = Math.abs(dx) + Math.abs(dy) * 1.6;
+                score = Math.abs(dx) + Math.abs(dy) * 1.5;
             }
 
             if (valid && score < minScore) {
@@ -340,10 +328,24 @@
     }
 
     function toggleFocusMode() {
+        const selected = getSelectedCards();
+        if (!isFocusMode && selected.length === 0) {
+            return;
+        }
+
         isFocusMode = !isFocusMode;
         document.body.classList.toggle('intercom-focus-active', isFocusMode);
         const slot = document.getElementById('intercom-slot-focus');
         if (slot) slot.classList.toggle('active', isFocusMode);
+        maintainFocusVisual();
+    }
+
+    function toggleCompactMode() {
+        isCompactMode = !isCompactMode;
+        localStorage.setItem('intercom_compact', String(isCompactMode));
+        document.body.classList.toggle('intercom-compact-active', isCompactMode);
+        const btn = document.getElementById('intercom-menu-compact');
+        if (btn) btn.innerHTML = `🗜️ Компактность: <b>${isCompactMode ? 'ВКЛ' : 'ВЫКЛ'}</b>`;
     }
 
     function isSimilar(s1, s2) {
@@ -387,13 +389,13 @@
         const contentBox = document.querySelector('._content_jbnnr_28');
         const ambientTarget = contentBox?.parentElement || document.body;
 
-        if (!ambientTarget.classList.contains('intercom-ambient-container')) {
-            ambientTarget.classList.add('intercom-ambient-container');
+        if (!ambientTarget.classList.contains('intercom-ambient-target')) {
+            ambientTarget.classList.add('intercom-ambient-target');
         }
 
         const cards = getAllCards();
         if (cards.length === 0 || !isSessionActive()) {
-            ambientTarget.classList.remove('intercom-glow-green', 'intercom-glow-red');
+            ambientTarget.classList.remove('intercom-ambient-green', 'intercom-ambient-red');
             return;
         }
 
@@ -401,13 +403,13 @@
         const allRefused = cards.every(c => c.textContent.includes('К аннуляции') || c.textContent.includes('Отказ'));
 
         if (allGiveout) {
-            ambientTarget.classList.remove('intercom-glow-red');
-            ambientTarget.classList.add('intercom-glow-green');
+            ambientTarget.classList.remove('intercom-ambient-red');
+            ambientTarget.classList.add('intercom-ambient-green');
         } else if (allRefused) {
-            ambientTarget.classList.remove('intercom-glow-green');
-            ambientTarget.classList.add('intercom-glow-red');
+            ambientTarget.classList.remove('intercom-ambient-green');
+            ambientTarget.classList.add('intercom-ambient-red');
         } else {
-            ambientTarget.classList.remove('intercom-glow-green', 'intercom-glow-red');
+            ambientTarget.classList.remove('intercom-ambient-green', 'intercom-ambient-red');
         }
     }
 
@@ -510,7 +512,7 @@
         const bar = document.createElement('div');
         bar.id = 'intercom-bar';
         bar.innerHTML = `
-            <div id="intercom-slot-focus" class="intercom-slot slot-focus">🎯 Фокус</div>
+            <div id="intercom-slot-focus" class="intercom-slot-btn ${isFocusMode ? 'active' : ''}">🎯 Фокус</div>
             
             <button class="intercom-btn btn-check" id="intercom-btn-check">
                 Все на проверку <span class="intercom-keycap">RCtrl+1</span>
@@ -537,6 +539,9 @@
                     <button class="intercom-menu-item" id="intercom-menu-none">
                         Снять все <span class="intercom-keycap">RCtrl+7</span>
                     </button>
+                    <button class="intercom-menu-item" id="intercom-menu-compact">
+                        🗜️ Компактность: <b>${isCompactMode ? 'ВКЛ' : 'ВЫКЛ'}</b>
+                    </button>
                 </div>
             </div>
         `;
@@ -561,13 +566,13 @@
         document.getElementById('intercom-menu-similar').onclick = () => { selectSimilarGroups(); menu.classList.remove('show'); };
         document.getElementById('intercom-menu-all').onclick = () => { selectAllCards(true); menu.classList.remove('show'); };
         document.getElementById('intercom-menu-none').onclick = () => { selectAllCards(false); menu.classList.remove('show'); };
+        document.getElementById('intercom-menu-compact').onclick = () => toggleCompactMode();
 
         updateButtonsLabel();
     }
 
     window.addEventListener('keydown', function(e) {
-        const isAuth = checkAuth();
-        if (isAuth === false || !isSessionActive()) return;
+        if (!checkAuth() || !isSessionActive()) return;
 
         if (e.code === 'ControlRight' || (e.ctrlKey && e.location === 2)) {
             isRightCtrlHeld = true;
@@ -586,6 +591,9 @@
             if (targetedCard) {
                 targetedCard.classList.toggle('intercom-selected');
                 updateButtonsLabel();
+                if (isFocusMode && getSelectedCards().length === 0) {
+                    toggleFocusMode();
+                }
             }
             return;
         }
@@ -613,8 +621,7 @@
     }, true);
 
     window.addEventListener('mousedown', function(e) {
-        const isAuth = checkAuth();
-        if (isAuth === false || !isSessionActive()) return;
+        if (!checkAuth() || !isSessionActive()) return;
         if (e.button !== 0) return;
         if (e.target.closest('button, input, textarea, a, svg, #intercom-bar, #intercom-more-menu')) return;
 
@@ -641,6 +648,9 @@
                 maintainFocusVisual();
                 card.classList.toggle('intercom-selected');
                 updateButtonsLabel();
+                if (isFocusMode && getSelectedCards().length === 0) {
+                    toggleFocusMode();
+                }
             }
         }
         isMouseDown = false;
@@ -648,16 +658,19 @@
     }, true);
 
     setInterval(() => {
-        const isAuth = checkAuth();
-        if (isAuth === false) {
+        if (!checkAuth()) {
             const bar = document.getElementById('intercom-bar');
             if (bar) bar.remove();
             return;
         }
 
+        if (isCompactMode) {
+            document.body.classList.add('intercom-compact-active');
+        }
+
         injectIntercomBar();
         maintainFocusVisual();
         updateAmbientGlow();
-    }, 250);
+    }, 200);
 
 })();
